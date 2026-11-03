@@ -3,6 +3,17 @@
 
 A Flask-based REST API for wedding and event seating optimization using **spectral clustering**.
 
+## Project Status
+
+This is an in-progress rebuild of a hackathon project. The API runs and its endpoints respond, but the core logic is still placeholder code:
+
+- Spectral clustering isn't implemented yet. Seating fills tables in order and ignores the relationship graph.
+- There's no way to upload guests, so every event uses the same 20 generated guests.
+- `/api/vectorize`, `/api/analyze_survey`, and the graph's friend edges return random or made-up data.
+- `silhouette_score` and `couple_success_rate` are hardcoded, so don't rely on them.
+- All data is kept in memory and is lost when the server restarts.
+- The original frontend and `pythonMlService.js` no longer exist and need to be rebuilt.
+
 ## Overview
 
 Arrangely API provides tools for optimizing seating arrangements by analyzing relationships between guests and applying clustering algorithms.
@@ -17,27 +28,29 @@ Arrangely API provides tools for optimizing seating arrangements by analyzing re
 ## Project Structure
 
 ```text
-ml_api/
+arrange.ly-spectral-clustering/
 ├── app.py                  # Main application entry point
 ├── config.py               # Configuration settings
 ├── requirements.txt        # Python dependencies
-├── controllers/            # API route handlers
-├── models/                 # Data models
-└── services/               # Core business logic
+├── requirements-dev.txt    # Python dependencies plus test tools
+├── controllers/            # API route handlers and request validation
+├── models/                 # In-memory data storage
+├── services/               # Core business logic (not written yet)
+└── tests/                  # Automated tests
 ```
 
 ## Getting Started
 
 ### Prerequisites
 
-- Python
+- Python 3.12 or newer (tested on 3.12 and 3.14)
 - pip (Python package manager)
 
 ### Installation
 
 **1. Create a virtual environment**
 
-Run the following command from the `ml_api` directory:
+Run the following command from the project's root directory:
 
 ```bash
 python -m venv venv
@@ -75,9 +88,11 @@ pip install -r requirements.txt
 python app.py
 ```
 
-The API will be available at:
+The API will be available at `http://localhost:5000`. For a list of endpoints, open:
 
-`http://localhost:5000/api/`
+`http://localhost:5000/api/docs`
+
+The server only accepts connections from your own computer. To change this, set the `HOST` and `PORT` environment variables.
 
 ## API Endpoints
 
@@ -126,7 +141,14 @@ Provides relationship network insights and arrangement quality metrics.
 
 The Arrangely API is designed to integrate with a JavaScript-based frontend.
 
-Frontend requests are managed through `pythonMlService.js`, which communicates with the Flask API endpoints.
+The original frontend managed its requests through `pythonMlService.js`. That file no longer exists, so a new frontend needs its own API client.
+
+## Testing
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
 
 ## Development
 
@@ -142,4 +164,4 @@ Debug mode provides:
 - Detailed error messages for troubleshooting.
 - An interactive debugger for local development.
 
-**Note:** Debug mode should only be used during development and should never be enabled in production.
+**Note:** Debug mode is off by default. It lets anyone who can reach the server run code on your computer, so only use it locally and never combine it with `HOST=0.0.0.0` or a tunnel such as ngrok.

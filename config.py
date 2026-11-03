@@ -1,7 +1,8 @@
 import os
 
 # Flask App Configuration
-DEBUG = True
+# Debug mode exposes an interactive debugger, so it must be turned on explicitly.
+DEBUG = os.environ.get('FLASK_DEBUG') == '1'
 SECRET_KEY = os.environ.get('SECRET_KEY', 'development-secret-key')
 
 # API Base URL

@@ -1,5 +1,6 @@
-from flask import Flask
+from flask import Flask, jsonify
 from flask_cors import CORS
+from werkzeug.exceptions import HTTPException
 import os
 
 # Import controllers (route handlers)
@@ -11,26 +12,51 @@ from controllers.analytics import analytics_routes
 # Import storage
 from models.storage import init_storage
 
+def register_error_handlers(app):
+    """Return every error as JSON in the same shape."""
+
+    @app.errorhandler(HTTPException)
+    def handle_http_error(error):
+        return jsonify({'success': False, 'message': error.description}), error.code
+
+    @app.errorhandler(Exception)
+    def handle_unexpected_error(error):
+        # Keep the details in the server log rather than sending them to the client.
+        app.logger.error('Unhandled error', exc_info=error)
+        return jsonify({'success': False, 'message': 'Internal server error'}), 500
+
+
+def get_run_options(env=os.environ):
+    """Local, non-debug defaults. Anything more exposed must be requested explicitly."""
+    return {
+        'host': env.get('HOST', '127.0.0.1'),
+        'port': int(env.get('PORT', 5000)),
+        'debug': env.get('FLASK_DEBUG') == '1',
+    }
+
+
 # Create and configure Flask app
 def create_app():
     app = Flask(__name__)
-    
+
     # Configure app from config.py if it exists
     if os.path.exists('config.py'):
         app.config.from_pyfile('config.py')
-    
+
     # Enable CORS for all routes
     CORS(app)
-    
+
+    register_error_handlers(app)
+
     # Initialize storage
     init_storage()
-    
+
     # Register routes from controllers
     app.register_blueprint(vectorization_routes)
     app.register_blueprint(graph_routes)
     app.register_blueprint(optimization_routes)
     app.register_blueprint(analytics_routes)
-    
+
     # Add a simple root route
     @app.route('/')
     def index():
@@ -40,7 +66,7 @@ def create_app():
             'version': '1.0.0',
             'documentation': '/api/docs'
         }
-    
+
     # Add a documentation route
     @app.route('/api/docs')
     def docs():
@@ -61,7 +87,7 @@ def create_app():
                 {'path': '/api/events/<event_id>/recommendations', 'method': 'GET', 'description': 'Generate arrangement recommendations'},
             ]
         }
-    
+
     return app
 
 # Create the application instance
@@ -69,6 +95,4 @@ app = create_app()
 
 # Run the app if executed directly
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    debug = os.environ.get('FLASK_ENV') == 'development'
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(**get_run_options())
