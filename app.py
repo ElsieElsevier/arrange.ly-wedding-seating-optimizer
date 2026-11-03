@@ -1,29 +1,95 @@
-from flask import Flask, jsonify
-from flask_cors import CORS
-from werkzeug.exceptions import HTTPException
+"""Arrangely: wedding seating from guest descriptions."""
+import math
 import os
 
-# Import controllers (route handlers)
-from controllers.vectorization import vectorization_routes
-from controllers.graph import graph_routes
-from controllers.optimization import optimization_routes
-from controllers.analytics import analytics_routes
+from flask import Flask, jsonify, request
+from werkzeug.exceptions import BadRequest, HTTPException
 
-# Import storage
-from models.storage import init_storage
+from embeddings import EmbeddingUnavailable, embed_texts
+from seating import SeatingError, plan_seating
 
-def register_error_handlers(app):
-    """Return every error as JSON in the same shape."""
+MAX_GUESTS = 500
+MAX_NAME_LENGTH = 100
+MAX_DESCRIPTION_LENGTH = 2000
+MAX_SEATS_PER_TABLE = 50
+REQUEST_FIELDS = {'guests', 'seats_per_table', 'num_tables'}
+GUEST_FIELDS = {'name', 'description', 'partner', 'avoid'}
 
-    @app.errorhandler(HTTPException)
-    def handle_http_error(error):
-        return jsonify({'success': False, 'message': error.description}), error.code
 
-    @app.errorhandler(Exception)
-    def handle_unexpected_error(error):
-        # Keep the details in the server log rather than sending them to the client.
-        app.logger.error('Unhandled error', exc_info=error)
-        return jsonify({'success': False, 'message': 'Internal server error'}), 500
+def _whole_number(value, label, largest):
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= largest:
+        raise BadRequest(f"{label} must be a whole number from 1 to {largest}.")
+    return value
+
+
+def _text(value, label, largest):
+    if not isinstance(value, str) or not value.strip():
+        raise BadRequest(f"{label} is required and must be text.")
+    value = value.strip()
+    if len(value) > largest:
+        raise BadRequest(f"{label} must be {largest} characters or fewer.")
+    return value
+
+
+def _parse_guests(raw_guests):
+    if not isinstance(raw_guests, list) or not 2 <= len(raw_guests) <= MAX_GUESTS:
+        raise BadRequest(f"Add at least 2 guests (up to {MAX_GUESTS}).")
+
+    guests = []
+    for position, raw in enumerate(raw_guests, start=1):
+        if not isinstance(raw, dict):
+            raise BadRequest(f"Guest {position} must be an object.")
+        unknown = sorted(set(raw) - GUEST_FIELDS)
+        if unknown:
+            raise BadRequest(f"Guest {position} has unknown field(s): {', '.join(unknown)}.")
+
+        partner = raw.get('partner') or None
+        avoid = raw.get('avoid') or []
+        if not isinstance(avoid, list):
+            raise BadRequest(f"Guest {position}'s 'avoid' must be a list of names.")
+        guests.append({
+            'name': _text(raw.get('name'), f"Guest {position}'s name", MAX_NAME_LENGTH),
+            'description': _text(raw.get('description'), f"Guest {position}'s description", MAX_DESCRIPTION_LENGTH),
+            'partner': _text(partner, f"Guest {position}'s partner", MAX_NAME_LENGTH) if partner else None,
+            'avoid': [_text(name, f"Guest {position}'s avoid name", MAX_NAME_LENGTH) for name in avoid],
+        })
+
+    _check_names(guests)
+    return guests
+
+
+def _check_names(guests):
+    names = {guest['name'] for guest in guests}
+    if len({guest['name'].casefold() for guest in guests}) < len(guests):
+        raise BadRequest('Every guest needs a different name.')
+
+    for guest in guests:
+        for other in filter(None, [guest['partner'], *guest['avoid']]):
+            if other not in names:
+                raise BadRequest(f"{guest['name']} refers to '{other}', who isn't on the guest list.")
+            if other == guest['name']:
+                raise BadRequest(f"{guest['name']} can't be linked to themselves.")
+
+
+def _parse_request(body):
+    if not isinstance(body, dict):
+        raise BadRequest('Request body must be a JSON object sent with Content-Type: application/json.')
+    unknown = sorted(set(body) - REQUEST_FIELDS)
+    if unknown:
+        raise BadRequest(f"Unknown field(s): {', '.join(unknown)}.")
+
+    guests = _parse_guests(body.get('guests'))
+    seats = _whole_number(body.get('seats_per_table'), "Seats per table", MAX_SEATS_PER_TABLE)
+
+    tables = body.get('num_tables')
+    if tables is None:
+        tables = math.ceil(len(guests) / seats)
+    else:
+        _whole_number(tables, "Number of tables", len(guests))
+
+    if tables * seats < len(guests):
+        raise BadRequest(f"Not enough seats: {len(guests)} guests but only {tables * seats} seats.")
+    return guests, seats, tables
 
 
 def get_run_options(env=os.environ):
@@ -35,64 +101,44 @@ def get_run_options(env=os.environ):
     }
 
 
-# Create and configure Flask app
 def create_app():
     app = Flask(__name__)
+    app.config['MAX_CONTENT_LENGTH'] = 4 * 1024 * 1024
 
-    # Configure app from config.py if it exists
-    if os.path.exists('config.py'):
-        app.config.from_pyfile('config.py')
-
-    # Enable CORS for all routes
-    CORS(app)
-
-    register_error_handlers(app)
-
-    # Initialize storage
-    init_storage()
-
-    # Register routes from controllers
-    app.register_blueprint(vectorization_routes)
-    app.register_blueprint(graph_routes)
-    app.register_blueprint(optimization_routes)
-    app.register_blueprint(analytics_routes)
-
-    # Add a simple root route
-    @app.route('/')
+    @app.get('/')
     def index():
-        return {
-            'status': 'online',
-            'api_name': 'Arrangely API',
-            'version': '1.0.0',
-            'documentation': '/api/docs'
-        }
+        return app.send_static_file('index.html')
 
-    # Add a documentation route
-    @app.route('/api/docs')
-    def docs():
-        return {
-            'endpoints': [
-                {'path': '/api/vectorize', 'method': 'POST', 'description': 'Convert text inputs to vector embeddings'},
-                {'path': '/api/analyze_survey', 'method': 'POST', 'description': 'Process survey responses for relationship data'},
-                {'path': '/api/events/<event_id>/build_graph', 'method': 'POST', 'description': 'Build a relationship graph from guest data'},
-                {'path': '/api/events/<event_id>/graph_visualization', 'method': 'GET', 'description': 'Get a visualization of the relationship graph'},
-                {'path': '/api/events/<event_id>/update_graph', 'method': 'POST', 'description': 'Update the relationship graph with manual changes'},
-                {'path': '/api/events/<event_id>/optimize', 'method': 'POST', 'description': 'Run the seating optimization algorithm'},
-                {'path': '/api/events/<event_id>/optimize/<job_id>/status', 'method': 'GET', 'description': 'Get the status of an optimization job'},
-                {'path': '/api/events/<event_id>/optimize/<job_id>/results', 'method': 'GET', 'description': 'Get the results of a completed optimization job'},
-                {'path': '/api/events/<event_id>/score_arrangement', 'method': 'POST', 'description': 'Score an existing arrangement'},
-                {'path': '/api/events/<event_id>/relationship_analytics', 'method': 'GET', 'description': 'Generate relationship network analysis'},
-                {'path': '/api/events/<event_id>/arrangements/<arrangement_id>/metrics', 'method': 'GET', 'description': 'Generate seating quality metrics'},
-                {'path': '/api/events/<event_id>/compare_arrangements', 'method': 'POST', 'description': 'Compare multiple arrangements'},
-                {'path': '/api/events/<event_id>/recommendations', 'method': 'GET', 'description': 'Generate arrangement recommendations'},
-            ]
-        }
+    @app.post('/api/seating')
+    def create_seating():
+        guests, seats, tables = _parse_request(request.get_json(silent=True))
+        embeddings = embed_texts([guest['description'] for guest in guests])
+        return jsonify(plan_seating(guests, seats, tables, embeddings))
+
+    @app.errorhandler(SeatingError)
+    def handle_seating_error(error):
+        return jsonify({'message': str(error)}), 400
+
+    @app.errorhandler(EmbeddingUnavailable)
+    def handle_embedding_error(error):
+        app.logger.error('Language model unavailable', exc_info=error)
+        message = 'The language model could not be loaded. The first run needs internet access to download it.'
+        return jsonify({'message': message}), 503
+
+    @app.errorhandler(HTTPException)
+    def handle_http_error(error):
+        return jsonify({'message': error.description}), error.code
+
+    @app.errorhandler(Exception)
+    def handle_unexpected_error(error):
+        # Keep the details in the server log rather than sending them to the client.
+        app.logger.error('Unhandled error', exc_info=error)
+        return jsonify({'message': 'Internal server error'}), 500
 
     return app
 
-# Create the application instance
+
 app = create_app()
 
-# Run the app if executed directly
 if __name__ == '__main__':
     app.run(**get_run_options())

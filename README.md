@@ -1,167 +1,81 @@
+# Arrangely
 
-# Arrangely API
+A wedding seating planner. Describe your guests in plain language, and Arrangely seats similar people together using **semantic text embeddings** and **spectral clustering**.
 
-A Flask-based REST API for wedding and event seating optimization using **spectral clustering**.
+Everything runs on your computer. Guest descriptions are never sent anywhere.
 
-## Project Status
+## How It Works
 
-This is an in-progress rebuild of a hackathon project. The API runs and its endpoints respond, but the core logic is still placeholder code:
-
-- Spectral clustering isn't implemented yet. Seating fills tables in order and ignores the relationship graph.
-- There's no way to upload guests, so every event uses the same 20 generated guests.
-- `/api/vectorize`, `/api/analyze_survey`, and the graph's friend edges return random or made-up data.
-- `silhouette_score` and `couple_success_rate` are hardcoded, so don't rely on them.
-- All data is kept in memory and is lost when the server restarts.
-- The original frontend and `pythonMlService.js` no longer exist and need to be rebuilt.
-
-## Overview
-
-Arrangely API provides tools for optimizing seating arrangements by analyzing relationships between guests and applying clustering algorithms.
-
-### Key Features
-
-- **Guest Relationship Analysis** – Vectorize and analyze guest relationship data.
-- **Graph Visualization** – Build and visualize relationship networks.
-- **Seating Optimization** – Generate optimized seating arrangements using spectral clustering.
-- **Arrangement Analytics** – Evaluate, score, and compare different seating configurations.
-
-## Project Structure
-
-```text
-arrange.ly-spectral-clustering/
-├── app.py                  # Main application entry point
-├── config.py               # Configuration settings
-├── requirements.txt        # Python dependencies
-├── requirements-dev.txt    # Python dependencies plus test tools
-├── controllers/            # API route handlers and request validation
-├── models/                 # In-memory data storage
-├── services/               # Core business logic (not written yet)
-└── tests/                  # Automated tests
-```
+1. **Understand each guest.** A local language model ([all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2)) turns each description into a vector, so that "pediatric nurse" and "orthopedic surgeon" land close together even though they share no words.
+2. **Keep couples together.** Partners are treated as a single unit.
+3. **Find the groups.** Spectral clustering builds a similarity graph of the guests and splits it into one group per table.
+4. **Fit the tables.** Groups are adjusted to fit the seats, even out table sizes, and honor "keep apart" requests.
 
 ## Getting Started
 
-### Prerequisites
-
-- Python 3.12 or newer (tested on 3.12 and 3.14)
-- pip (Python package manager)
-
-### Installation
-
-**1. Create a virtual environment**
-
-Run the following command from the project's root directory:
-
-```bash
-python -m venv venv
-```
-
-Activate the virtual environment.
-
-**Windows (PowerShell):**
+You need Python 3.12 or newer. From the project's root directory:
 
 ```powershell
+python -m venv venv
 .\venv\Scripts\Activate.ps1
-```
-
-**Windows (Command Prompt):**
-
-```cmd
-venv\Scripts\activate.bat
-```
-
-**macOS / Linux:**
-
-```bash
-source venv/bin/activate
-```
-
-**2. Install dependencies**
-
-```bash
 pip install -r requirements.txt
-```
-
-**3. Run the application**
-
-```bash
 python app.py
 ```
 
-The API will be available at `http://localhost:5000`. For a list of endpoints, open:
+On macOS or Linux, activate with `source venv/bin/activate` instead.
 
-`http://localhost:5000/api/docs`
+Then open <http://localhost:5000>. Select **Load example** to try it with sample guests.
 
-The server only accepts connections from your own computer. To change this, set the `HOST` and `PORT` environment variables.
+The first seating plan needs internet access and takes longer, because it downloads the language model (about 90 MB). After that, it works offline.
 
-## API Endpoints
+## Writing Good Descriptions
 
-### Vectorization Service
+Describe how you know the guest, along with their age, interests, and personality.
 
-Handles text vectorization and guest relationship data processing.
+Specific details matter. With short descriptions, wording like "Bride's" can outweigh what actually makes guests alike, so an 84-year-old grandmother could land with the college friends. Always review the plan before using it.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/vectorize` | Convert text inputs into vector embeddings |
-| `POST` | `/api/analyze_survey` | Process survey responses to extract relationship data |
+Use the **Keep apart from** box for conflicts, not the description. Embeddings can't reliably read negation: "seat me with Dana" and "do not seat me near Dana" look very similar to the model.
 
-### Graph Building Service
+## Limitations
 
-Builds, visualizes, and modifies guest relationship networks.
+- Seating plans aren't saved on the server. The page keeps your guest list as a draft in your browser.
+- A keep-apart request that can't be met, such as when there's only one table, is reported on the results page.
+- Guests are grouped by similarity, so people with different backgrounds won't be mixed on purpose.
+- Tables are kept fairly even, so a very large circle may be split, and a very small one may be seated with others.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/events/{event_id}/build_graph` | Build a relationship graph from guest data |
-| `GET` | `/api/events/{event_id}/graph_visualization` | Generate a visualization of the relationship graph |
-| `POST` | `/api/events/{event_id}/update_graph` | Update the relationship graph with manual changes |
+## API
 
-### Optimization Service
+`POST /api/seating`
 
-Runs seating optimization algorithms and evaluates arrangements.
+```json
+{
+  "seats_per_table": 8,
+  "num_tables": 3,
+  "guests": [
+    {
+      "name": "Maya Chen",
+      "description": "Bride's college roommate, a lawyer who loves karaoke.",
+      "partner": "Daniel Chen",
+      "avoid": ["Tom Baker"]
+    }
+  ]
+}
+```
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/events/{event_id}/optimize` | Run the seating optimization algorithm |
-| `GET` | `/api/events/{event_id}/optimize/{job_id}/status` | Retrieve the status of an optimization job |
-| `GET` | `/api/events/{event_id}/optimize/{job_id}/results` | Retrieve completed optimization results |
-| `POST` | `/api/events/{event_id}/score_arrangement` | Evaluate an existing seating arrangement |
+`num_tables`, `partner`, and `avoid` are optional. If `num_tables` is left out, Arrangely uses the fewest tables that fit everyone. The response lists each table's guests, plus a summary of the plan's quality.
 
-### Analytics Service
+## Running the Tests
 
-Provides relationship network insights and arrangement quality metrics.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/events/{event_id}/relationship_analytics` | Generate relationship network analytics |
-| `GET` | `/api/events/{event_id}/arrangements/{arrangement_id}/metrics` | Generate seating quality metrics |
-| `POST` | `/api/events/{event_id}/compare_arrangements` | Compare multiple seating arrangements |
-| `GET` | `/api/events/{event_id}/recommendations` | Generate seating arrangement recommendations |
-
-## Frontend Integration
-
-The Arrangely API is designed to integrate with a JavaScript-based frontend.
-
-The original frontend managed its requests through `pythonMlService.js`. That file no longer exists, so a new frontend needs its own API client.
-
-## Testing
-
-```bash
+```powershell
 pip install -r requirements-dev.txt
 python -m pytest
+python -m pytest -m model
 ```
 
-## Development
+The second test command uses the real language model.
 
-To run the Flask application in development mode with debugging and automatic reloading enabled:
+## Server Settings
 
-```bash
-flask --app app run --debug
-```
+By default, the server only accepts connections from your own computer, with debug mode off. To change this, set the `HOST`, `PORT`, and `FLASK_DEBUG=1` environment variables.
 
-Debug mode provides:
-
-- Automatic server reloading when source code changes.
-- Detailed error messages for troubleshooting.
-- An interactive debugger for local development.
-
-**Note:** Debug mode is off by default. It lets anyone who can reach the server run code on your computer, so only use it locally and never combine it with `HOST=0.0.0.0` or a tunnel such as ngrok.
+Debug mode lets anyone who can reach the server run code on your computer, so never combine it with `HOST=0.0.0.0` or a tunnel such as ngrok.

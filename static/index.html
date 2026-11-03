@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arrangely</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f5f1; --panel: #ffffff; --text: #24211d; --muted: #6a645b;
+    --line: #ddd8cf; --accent: #7a3e52; --accent-text: #ffffff;
+    --error-bg: #fbeaea; --error-text: #8e1f1f; --warn-bg: #fdf3dc; --warn-text: #6f4e00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1a18; --panel: #272421; --text: #f0ebe3; --muted: #b0a89c;
+      --line: #443f39; --accent: #d797ab; --accent-text: #24161b;
+      --error-bg: #452222; --error-text: #ffc9c9; --warn-bg: #403316; --warn-text: #f4d98f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { margin: 0; font-size: 2rem; }
+  h2 { margin: 40px 0 12px; font-size: 1.25rem; }
+  h3 { margin: 0; font-size: 1.05rem; }
+  p { margin: 4px 0 0; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: 4px; }
+  input, textarea {
+    width: 100%; padding: 8px 10px; font: inherit; color: inherit;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+  }
+  textarea { resize: vertical; min-height: 64px; }
+  button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  button:disabled { opacity: .6; cursor: wait; }
+  .settings { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 24px; }
+  .settings > div { width: 180px; }
+  .guest { display: grid; grid-template-columns: 1fr 2fr auto; gap: 12px; padding: 16px; margin-bottom: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .guest .description { grid-row: span 2; }
+  .guest .description textarea { height: calc(100% - 26px); }
+  .guest .links { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; grid-column: 1; }
+  .guest .remove { grid-column: 3; grid-row: 1; align-self: start; }
+  .name { grid-column: 1; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .message { margin-top: 16px; padding: 10px 14px; border-radius: 6px; }
+  .message.error { background: var(--error-bg); color: var(--error-text); }
+  .message.warning { background: var(--warn-bg); color: var(--warn-text); }
+  .stats { display: flex; flex-wrap: wrap; gap: 24px; margin-bottom: 16px; }
+  .stats strong { display: block; font-size: 1.4rem; }
+  .tables { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; }
+  .table-card { padding: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .table-card ul { list-style: none; margin: 10px 0 0; padding: 0; }
+  .table-card li { padding: 6px 0; border-top: 1px solid var(--line); }
+  [hidden] { display: none !important; }
+  @media (max-width: 640px) {
+    .guest { grid-template-columns: 1fr auto; }
+    .guest .description, .guest .links { grid-column: 1 / -1; grid-row: auto; }
+    .guest .remove { grid-column: 2; }
+    .settings > div { width: calc(50% - 8px); }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Arrangely</h1>
+  <p class="muted">Describe your guests, and similar people will be seated together. Everything runs on this computer.</p>
+
+  <form id="form" novalidate>
+    <div class="settings">
+      <div>
+        <label for="seats">Seats per table</label>
+        <input id="seats" type="number" min="1" max="50" value="8" required>
+      </div>
+      <div>
+        <label for="tables">Number of tables</label>
+        <input id="tables" type="number" min="1" placeholder="Automatic">
+      </div>
+    </div>
+
+    <h2>Guests</h2>
+    <p class="muted" style="margin-bottom:12px">Describe who each guest is: how you know them, their age, interests and personality. Use the "Keep apart from" box for conflicts, because descriptions can't reliably express "don't sit near someone".</p>
+    <div id="guests"></div>
+
+    <div class="actions">
+      <button type="button" id="add">Add guest</button>
+      <button type="button" id="example">Load example</button>
+      <button type="button" id="clear">Clear all</button>
+      <button type="submit" class="primary" id="submit">Create seating plan</button>
+    </div>
+    <p class="muted" id="status" role="status"></p>
+  </form>
+
+  <div id="error" class="message error" role="alert" hidden></div>
+
+  <section id="results" hidden>
+    <h2>Seating plan</h2>
+    <div class="stats" id="stats"></div>
+    <div id="warning" class="message warning" role="alert" hidden></div>
+    <div class="tables" id="tableList"></div>
+  </section>
+</main>
+
+<template id="guestTemplate">
+  <div class="guest">
+    <div class="name"><label>Name <input data-field="name" maxlength="100"></label></div>
+    <div class="description"><label style="height:100%">Description <textarea data-field="description" maxlength="2000"></textarea></label></div>
+    <button type="button" class="remove" aria-label="Remove guest">Remove</button>
+    <div class="links">
+      <div><label>Sits with (partner) <input data-field="partner" list="guestNames"></label></div>
+      <div><label>Keep apart from <input data-field="avoid" list="guestNames" placeholder="Name, Name"></label></div>
+    </div>
+  </div>
+</template>
+<datalist id="guestNames"></datalist>
+
+<script>
+const EXAMPLE = [
+  ['Maya Chen', "Bride's college roommate, now a lawyer in Chicago. Loves wine and karaoke.", 'Daniel Chen'],
+  ['Daniel Chen', "Maya's husband, a startup founder who is outgoing and loves to dance.", 'Maya Chen'],
+  ['Priya Nair', "Was in the bride's sorority. Very outgoing and always first on the dance floor."],
+  ['Sofia Reyes', 'Studied abroad in Spain with the bride. Funny and talks to everybody.'],
+  ['Hannah Weiss', "Bride's best friend from freshman year, a marketing director who loves to party.", '', 'Tom Baker'],
+  ['Tom Baker', "Groom's manager at the accounting firm, in his fifties and a big golf fan.", 'Linda Baker', 'Hannah Weiss'],
+  ['Linda Baker', "Tom's wife, also in finance, enjoys golf and quiet conversation.", 'Tom Baker'],
+  ['Marcus Hill', 'Sits next to the groom at the office and talks about spreadsheets and fantasy football.'],
+  ['Aisha Khan', "Colleague of the groom in the finance department, and a new parent."],
+  ['Rosa Alvarez', "Bride's grandmother, 84 and hard of hearing. Would like to be away from the speakers."],
+  ['Walter Alvarez', "Bride's grandfather, a retired farmer who tells long stories about the old days.", 'Rosa Alvarez'],
+  ['Edith Moore', "Groom's great-aunt who uses a walker and goes to bed early."],
+  ['Harold Moore', "Groom's elderly uncle, a retired pastor who doesn't drink."],
+  ['Jonah Park', "Groom's teenage nephew, who mostly wants to play on his phone."],
+  ['Lily Park', "Bride's 16-year-old cousin, shy and into anime and drawing."],
+  ['Owen Scott', "Flower girl's older brother, age 13, who loves Minecraft."],
+];
+
+const DRAFT_KEY = 'arrangely-draft';
+const $ = (id) => document.getElementById(id);
+const template = $('guestTemplate');
+
+function addGuest(values = {}) {
+  const row = template.content.cloneNode(true).firstElementChild;
+  row.querySelectorAll('[data-field]').forEach((input) => { input.value = values[input.dataset.field] || ''; });
+  row.querySelector('.remove').addEventListener('click', () => { row.remove(); saveDraft(); });
+  $('guests').append(row);
+  return row;
+}
+
+function readRows() {
+  return [...document.querySelectorAll('.guest')].map((row) => {
+    const values = {};
+    row.querySelectorAll('[data-field]').forEach((input) => { values[input.dataset.field] = input.value.trim(); });
+    return values;
+  }).filter((guest) => Object.values(guest).some(Boolean));
+}
+
+function setGuests(guests) {
+  $('guests').replaceChildren();
+  guests.forEach(addGuest);
+  if (guests.length === 0) { addGuest(); addGuest(); }
+  refreshNames();
+}
+
+function refreshNames() {
+  const options = readRows().map((guest) => guest.name).filter(Boolean).map((name) => {
+    const option = document.createElement('option');
+    option.value = name;
+    return option;
+  });
+  $('guestNames').replaceChildren(...options);
+}
+
+function saveDraft() {
+  refreshNames();
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ seats: $('seats').value, tables: $('tables').value, guests: readRows() }));
+  } catch { /* Saving a draft is only a convenience. */ }
+}
+
+function loadDraft() {
+  try {
+    const draft = JSON.parse(localStorage.getItem(DRAFT_KEY));
+    if (draft) {
+      $('seats').value = draft.seats;
+      $('tables').value = draft.tables;
+      return draft.guests;
+    }
+  } catch { /* Start with an empty form. */ }
+  return [];
+}
+
+function buildRequest() {
+  const body = {
+    seats_per_table: Number($('seats').value),
+    guests: readRows().map((guest) => ({
+      name: guest.name,
+      description: guest.description,
+      partner: guest.partner || null,
+      avoid: guest.avoid.split(',').map((name) => name.trim()).filter(Boolean),
+    })),
+  };
+  if ($('tables').value) body.num_tables = Number($('tables').value);
+  return body;
+}
+
+function showError(message) {
+  $('error').textContent = message;
+  $('error').hidden = !message;
+}
+
+function stat(value, label) {
+  const box = document.createElement('div');
+  const number = document.createElement('strong');
+  number.textContent = value ?? 'n/a';
+  const caption = document.createElement('span');
+  caption.className = 'muted';
+  caption.textContent = label;
+  box.append(number, caption);
+  return box;
+}
+
+function showResults({ tables, summary }) {
+  $('stats').replaceChildren(
+    stat(summary.tables_used, 'tables used'),
+    stat(summary.average_tablemate_similarity, 'average similarity between tablemates'),
+    stat(summary.random_seating_similarity, 'expected from random seating'),
+    stat(`${summary.avoid_requests - summary.avoid_conflicts} of ${summary.avoid_requests}`, 'keep-apart requests met'),
+  );
+
+  $('warning').hidden = summary.avoid_conflicts === 0;
+  $('warning').textContent = `${summary.avoid_conflicts} keep-apart request(s) could not be met. Try adding a table.`;
+
+  $('tableList').replaceChildren(...tables.map((table) => {
+    const card = document.createElement('article');
+    card.className = 'table-card';
+    const title = document.createElement('h3');
+    title.textContent = `Table ${table.table} (${table.guests.length} of ${summary.seats_per_table} seats)`;
+    const list = document.createElement('ul');
+    table.guests.forEach((guest) => {
+      const item = document.createElement('li');
+      item.textContent = guest.name;
+      if (guest.closest_tablemate) {
+        const note = document.createElement('div');
+        note.className = 'muted';
+        note.textContent = `Most like ${guest.closest_tablemate.name}`;
+        item.append(note);
+      }
+      list.append(item);
+    });
+    card.append(title, list);
+    return card;
+  }));
+
+  $('results').hidden = false;
+  $('results').scrollIntoView({ behavior: 'smooth' });
+}
+
+$('form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  showError('');
+  $('results').hidden = true;
+  $('submit').disabled = true;
+  $('status').textContent = 'Working... the very first plan takes longer because the language model has to download.';
+  try {
+    const response = await fetch('/api/seating', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(buildRequest()),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message);
+    showResults(data);
+  } catch (error) {
+    showError(error.message || 'Could not reach the server. Is it still running?');
+  } finally {
+    $('submit').disabled = false;
+    $('status').textContent = '';
+  }
+});
+
+$('add').addEventListener('click', () => addGuest().querySelector('input').focus());
+$('example').addEventListener('click', () => {
+  $('seats').value = 6;
+  $('tables').value = 4;
+  setGuests(EXAMPLE.map(([name, description, partner, avoid]) => ({ name, description, partner, avoid })));
+  saveDraft();
+});
+$('clear').addEventListener('click', () => {
+  setGuests([]);
+  $('results').hidden = true;
+  showError('');
+  saveDraft();
+});
+$('form').addEventListener('input', saveDraft);
+
+setGuests(loadDraft());
+</script>
+</body>
+</html>
