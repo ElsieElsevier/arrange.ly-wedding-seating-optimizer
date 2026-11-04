@@ -1,5 +1,7 @@
 # Arrangely
 
+Originally built at e{hack}2024 (2nd place); rebuilt in 2026.
+
 A wedding seating planner. Describe your guests in plain language, and Arrangely seats similar people together using **semantic text embeddings** and **spectral clustering**.
 
 Guest descriptions are processed on your computer and are never sent anywhere. Arrangely is a single Flask app with its own web page. It has no database and no user accounts.
