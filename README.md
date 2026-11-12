@@ -1,6 +1,6 @@
 # Arrangely
 
-Originally built at e{hack}2024 (2nd place); rebuilt in 2026.
+Originally built at e{hack}2025 (2nd place); rebuilt in 2026.
 
 A wedding seating planner. Describe your guests in plain language, and Arrangely seats similar people together using **semantic text embeddings** and **spectral clustering**.
 
